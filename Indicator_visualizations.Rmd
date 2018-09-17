@@ -15,10 +15,7 @@ library(ggplot2)
 library(plotly)
 library(esrr)
 library(cowplot)
-library(viridis)
 library(sf)
-
-Sys.setenv('MAPBOX_TOKEN' = 'pk.eyJ1Ijoic2VhbmhhcmRpc29uIiwiYSI6ImNqbTVmOXVjNjB6M3gzcXA3enUwaG1iNnQifQ.2KPJ4aynIrmQk_YiDLkY3A')
 
 
 gis.dir <- 'z:/shardison/neiea/Extended_EPU'
@@ -344,7 +341,7 @@ ne_states <- rnaturalearth::ne_states(country = "united states of america",
 #EPU
 EPU <- sf::st_read(file.path(gis.dir,"EPU_Extended.shp"), quiet = TRUE) %>%
   st_transform(., crs = crs)
-EPU <- EPU[EPU$EPU != "SS",]
+EPU <- EPU[EPU$EPU != "SS" ,]
 
 #Ocean
 lseq = seq(20, 60, by=.25)
@@ -366,20 +363,21 @@ p1 <- ggplot() +
   geom_polygon(data=boundary, aes(x=long, y=lat), fill="#9AC5E3") +
   geom_sf(data = ne_countries, fill = "white",color = "white", size = 0.25) +
   geom_sf(data = ne_states, fill = "white",color = "white", size = 0.05) +
-  geom_sf(data = EPU, aes(fill = EPU), color = c('#0049EE','#25408F','#0068B5')) +
+  geom_sf(data = EPU, aes(fill = EPU), color = c('#0049EE')) +
   scale_fill_manual(values = c('#0049EE','#25408F','#0068B5')) +
   coord_sf(crs = crs, xlim = xlims, ylim = ylims) +
   theme_map() +
   theme(legend.position = "right",
                  legend.key.width = ggplot2::unit(2, "cm"))
 
-#ggplotly output
-shiny::div(ggplotly(p1)%>%
+plt <- ggplotly(p1)%>%
     layout(
       margin = list(b = 50, t = 50),
       autosize = F,
-      width = 500# to fully display the x and y axis labels
-    ), align = "center")
+      width = 500
+    )
+
+shiny::div(plt, align = "center")
 
 ```
 <br>
@@ -389,8 +387,9 @@ shiny::div(ggplotly(p1)%>%
 ```{r annual sst time series}
 #get data
 mab <- soe %>%
-  filter(Var == "sst mean long term MAB" | Var == "sst sd long term MAB") %>%
-  tidyr::spread(., key = Var, value = Value)
+  filter(Var == "sst mean long term MAB" | Var == "sst sd long term MAB" | Var == "sst mean 2017 MAB") %>%
+  tidyr::spread(., key = Var, value = Value) %>% 
+  mutate(DOY = seq( as.Date("2017-01-01"), as.Date("2017-12-31"), by="+1 day"))
 
 #custom x axis
 xax <- list(
@@ -402,18 +401,22 @@ xax <- list(
 )
 
 #plot
-p <- plot_ly(mab, x = ~Time, y = ~`sst mean long term MAB`, name = 'MAB LTM', type = 'scatter', mode = 'lines',
-        line = list(color = 'rgb(205, 12, 24)', width = 4)) %>%
+p <- plot_ly(mab, x = ~DOY, y = ~`sst mean long term MAB`, name = 'Long-term mean SST', type = 'scatter', mode = 'lines',
+        line = list(color = 'grey', width = 3)) %>%
   add_trace(y = ~`sst mean long term MAB` - `sst sd long term MAB`, name = '- 1 SD',
             line = list(color = 'rgb(22, 96, 167)', width = 1, showlegend = F)) %>%
   add_trace(y = ~`sst mean long term MAB` + `sst sd long term MAB`, name = '+ 1 SD',
             line = list(color = 'rgb(22, 96, 167)', width = 1, showlegend = F)) %>%
-  layout(title = "Long-term SSTs in the Mid-Atlantic Bight",
+    add_trace(y = ~`sst mean 2017 MAB`, name = '2017 SST',
+            line = list(color = 'red', width = 3, showlegend = F)) %>%
+  layout(title = "SSTs in the Mid-Atlantic Bight",
          xaxis = xax,
          yaxis = list (title = "Temperature (&deg;C)"))
 
-p
+shiny::div(p %>% layout(autosize = F, width = 650), align = "center")
 
 
 ```
+
+
 
