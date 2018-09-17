@@ -16,10 +16,21 @@ library(plotly)
 library(esrr)
 library(cowplot)
 library(sf)
+library(ncdf4)
+library(raster)
+library(rgdal)
 
 
-gis.dir <- 'z:/shardison/neiea/Extended_EPU'
 soe <- read.csv("data/SOE_data_2018.csv") %>% filter(SOE.2018 == 'Y')
+crs <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0" 
+#get strata files to clip thermal habitat projections
+strata <- readOGR("data/strata", verbose = F)
+strata@proj4string <- CRS(crs)
+
+Sys.setenv("plotly_username"="seanhardison")
+Sys.setenv("plotly_api_key"="NZ7ySWIc383RvJdWEHH9")
+
+
 ```
 
 
@@ -53,7 +64,7 @@ for (i in 1:length(unique(dat$Var))){
 ```
 
 
-```{r ggplot figs}
+```{r ggplot figs, eval = F}
 #set up----------------------------------------------------------------------
 
 variables <- c("Mid-Atlantic angler trips","Mid-Atlantic fleet count")
@@ -324,7 +335,7 @@ shiny::div(p, align = "center")
 <br>
 
 ```{r epu maps}
-crs <-  "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
 
 
 #North America
@@ -339,7 +350,7 @@ ne_states <- rnaturalearth::ne_states(country = "united states of america",
   sf::st_transform(crs = crs)
 
 #EPU
-EPU <- sf::st_read(file.path(gis.dir,"EPU_Extended.shp"), quiet = TRUE) %>%
+EPU <- sf::st_read("data/EPU_Extended.shp", quiet = TRUE) %>%
   st_transform(., crs = crs)
 EPU <- EPU[EPU$EPU != "SS" ,]
 
@@ -363,18 +374,25 @@ p1 <- ggplot() +
   geom_polygon(data=boundary, aes(x=long, y=lat), fill="#9AC5E3") +
   geom_sf(data = ne_countries, fill = "white",color = "white", size = 0.25) +
   geom_sf(data = ne_states, fill = "white",color = "white", size = 0.05) +
-  geom_sf(data = EPU, aes(fill = EPU), color = c('#0049EE')) +
+  geom_sf(data = EPU, aes(fill = EPU), color = c('#0049EE','#25408F','#0068B5')) +
   scale_fill_manual(values = c('#0049EE','#25408F','#0068B5')) +
   coord_sf(crs = crs, xlim = xlims, ylim = ylims) +
   theme_map() +
   theme(legend.position = "right",
                  legend.key.width = ggplot2::unit(2, "cm"))
 
+
 plt <- ggplotly(p1)%>%
     layout(
+      title = "The Northeast Large Marine Ecosystem (NE-LME)",
+      titlefont = list(size = 15),
       margin = list(b = 50, t = 50),
       autosize = F,
-      width = 500
+      width = 500,
+      legend = list(x = 0.1, y = 0.9,
+      bgcolor = "#E2E2E2",
+      bordercolor = "#FFFFFF",
+      borderwidth = 2)
     )
 
 shiny::div(plt, align = "center")
@@ -411,12 +429,82 @@ p <- plot_ly(mab, x = ~DOY, y = ~`sst mean long term MAB`, name = 'Long-term mea
             line = list(color = 'red', width = 3, showlegend = F)) %>%
   layout(title = "SSTs in the Mid-Atlantic Bight",
          xaxis = xax,
-         yaxis = list (title = "Temperature (&deg;C)"))
+         yaxis = list (title = "Temperature (&deg;C)"),
+         legend = list(x = 0.1, y = 0.9))
 
 shiny::div(p %>% layout(autosize = F, width = 650), align = "center")
-
-
 ```
 
 
+```{r bsb thermal habitat}
+
+#get data
+data <- nc_open("data/Black Sea Bassfall_4.nc")
+
+#longitude
+lon <- ncvar_get(data, "xi", verbose = F)
+
+#latitude
+lat <- ncvar_get(data, "yi", verbose = F)
+
+#thermal habitat projection
+z <- ncvar_get(data, "zi")
+
+#combine in data.frame
+proj <- data.frame(lon = lon,
+                   lat = lat,
+                   z = z)
+z.max <- 1.353462
+proj <- proj %>% filter(z != "NA",z>0) %>% 
+  mutate(z = plyr::mapvalues(z, from = (z[(z>z.max)]), to = rep(z.max,length(z[(z>z.max)]))))
+proj$z <- proj$z/max(proj$z)
+  
+#turn dataframe to raster
+coordinates(proj) = ~lon+lat
+proj4string(proj)=crs # set it to lat-long
+proj <- spTransform(proj,crs)
+proj <- proj[strata,]
+gridded(proj) <- TRUE
+r <- raster(proj)
+projection(r) <- crs
+
+
+# 
+# ggplot(data=r_df,aes(Var2, rev(Var1), fill = value)) +
+#   geom_tile() +
+#   scale_fill_gradient2(low = "blue",mid = "white",high = "red",midpoint = 0.5)
+r_spdf <- as(r, "SpatialPixelsDataFrame")
+r_df <- as.data.frame(r_spdf)
+# 
+# colors <- colorRamps::matlab.like(120)
+names(r_df)[1] <- "Thermal Habitat"
+
+
+bsb <- ggplot() +  
+  geom_polygon(data=boundary, aes(x=long, y=lat), fill="#9AC5E3") +
+  geom_sf(data = ne_countries, fill = "white",color = "white", size = 0.25) +
+  geom_sf(data = ne_states, fill = "white",color = "white", size = 0.05) +
+  geom_tile(data=r_df, aes(x=x, y=y, fill=`Thermal Habitat`), alpha=0.8) +
+  scale_fill_gradient2(low = "blue",mid = "white",high = "red",midpoint = 0.5) +
+  coord_sf(crs = crs, xlim = xlims, ylim = ylims) +
+  theme_map() +
+  theme(legend.text = element_blank(),
+  plot.background=element_blank(),
+  panel.border=element_blank())
+
+bsb
+# plt <- ggplotly(bsb, type = "") %>%
+#     layout(
+#       title = "Black Sea Bass Thermal Habitat",
+#       titlefont = list(size = 15),
+#       margin = list(b = 50, t = 50),
+#       autosize = F,
+#       width = 500,
+#       legend = list(x = 0.1, y = 0.9,
+#       bgcolor = "#E2E2E2",
+#       bordercolor = "#FFFFFF",
+#       borderwidth = 2)
+#     )
+# shiny::div(plt, align = "center")
+```
 
