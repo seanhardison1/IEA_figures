@@ -467,7 +467,8 @@ proj <- proj[strata,]
 gridded(proj) <- TRUE
 r <- raster(proj)
 projection(r) <- crs
-
+#downsample
+r <-disaggregate(r, fact=4)
 
 # 
 # ggplot(data=r_df,aes(Var2, rev(Var1), fill = value)) +
@@ -484,27 +485,27 @@ bsb <- ggplot() +
   geom_polygon(data=boundary, aes(x=long, y=lat), fill="#9AC5E3") +
   geom_sf(data = ne_countries, fill = "white",color = "white", size = 0.25) +
   geom_sf(data = ne_states, fill = "white",color = "white", size = 0.05) +
-  geom_tile(data=r_df, aes(x=x, y=y, fill=`Thermal Habitat`), alpha=0.8) +
-  scale_fill_gradient2(low = "blue",mid = "white",high = "red",midpoint = 0.5) +
+  geom_point(data=r_df, aes(x=x, y=y, color=`Thermal Habitat`), alpha=0.8) +
+  scale_color_gradient2(low = "blue",mid = "white",high = "red",midpoint = 0.5) +
   coord_sf(crs = crs, xlim = xlims, ylim = ylims) +
   theme_map() +
   theme(legend.text = element_blank(),
   plot.background=element_blank(),
   panel.border=element_blank())
 
-bsb
-# plt <- ggplotly(bsb, type = "") %>%
-#     layout(
-#       title = "Black Sea Bass Thermal Habitat",
-#       titlefont = list(size = 15),
-#       margin = list(b = 50, t = 50),
-#       autosize = F,
-#       width = 500,
-#       legend = list(x = 0.1, y = 0.9,
-#       bgcolor = "#E2E2E2",
-#       bordercolor = "#FFFFFF",
-#       borderwidth = 2)
-#     )
-# shiny::div(plt, align = "center")
+plt <- ggplotly(bsb) %>%
+    layout(
+      title = "Black Sea Bass Thermal Habitat",
+      titlefont = list(size = 15),
+      margin = list(b = 50, t = 50),
+      autosize = F,
+      width = 500,
+      legend = list(x = 0.1, y = 0.9,
+      bgcolor = "#E2E2E2",
+      bordercolor = "#FFFFFF",
+      borderwidth = 2)
+    )
+shiny::div(plt, align = "center")
+
 ```
 
