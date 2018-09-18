@@ -1,0 +1,158 @@
+---
+title: "Plotly_raster_vis"
+author: "Sean Hardison"
+date: "September 18, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE,
+                      fig.align = "center",
+                      message = FALSE,
+                      warning = FALSE)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(esrr)
+library(cowplot)
+library(sf)
+library(ncdf4)
+library(raster)
+library(rgdal)
+
+
+soe <- read.csv("data/SOE_data_2018.csv") %>% filter(SOE.2018 == 'Y')
+crs <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0" 
+#get strata files to clip thermal habitat projections
+strata <- readOGR("data/strata", verbose = F)
+strata@proj4string <- CRS(crs)
+
+Sys.setenv("plotly_username"="seanhardison")
+Sys.setenv("plotly_api_key"="NZ7ySWIc383RvJdWEHH9")
+
+
+```
+
+```{r bsb thermal habitat}
+#North America
+ne_countries <- rnaturalearth::ne_countries(scale = 10,
+                                            continent = "North America",
+                                            returnclass = "sf") %>%
+  sf::st_transform(crs = crs)
+
+#States
+ne_states <- rnaturalearth::ne_states(country = "united states of america",
+                                      returnclass = "sf") %>%
+  sf::st_transform(crs = crs)
+
+#EPU
+EPU <- sf::st_read("data/EPU_Extended.shp", quiet = TRUE) %>%
+  st_transform(., crs = crs)
+EPU <- EPU[EPU$EPU != "SS" ,]
+
+#Ocean
+lseq = seq(20, 60, by=.25)
+boundary <- data.frame(
+  long = c(rep(-180, length(lseq)), rep(180, length(lseq)), -180),
+  lat  = c(lseq, rev(lseq), lseq[1]))
+
+#bbox
+xmin = -76
+xmax = -66
+ymin = 36
+ymax = 45
+
+xlims <- c(xmin, xmax)
+ylims <- c(ymin, ymax)
+
+#get data
+data <- nc_open("data/Black Sea Bassfall_4.nc")
+
+#longitude
+lon <- ncvar_get(data, "xi", verbose = F)
+
+#latitude
+lat <- ncvar_get(data, "yi", verbose = F)
+
+#thermal habitat projection
+z <- ncvar_get(data, "zi")
+
+#combine in data.frame
+proj <- data.frame(lon = lon,
+                   lat = lat,
+                   z = z)
+
+rm(data)
+z.max <- 1.353462
+proj <- proj %>% filter(z != "NA",z>0) %>% 
+  mutate(z = plyr::mapvalues(z, from = (z[(z>z.max)]), to = rep(z.max,length(z[(z>z.max)]))))
+proj$z <- proj$z/max(proj$z)
+  
+#turn dataframe to raster
+coordinates(proj) = ~lon+lat
+proj4string(proj)=crs # set it to lat-long
+proj <- spTransform(proj,crs)
+proj <- proj[strata,]
+gridded(proj) <- TRUE
+r <- raster(proj)
+#projection(r) <- crs#downsample
+d <- aggregate(r, fact=5)
+# 
+# ggplot(data=r_df,aes(Var2, rev(Var1), fill = value)) +
+#   geom_tile() +
+#   scale_fill_gradient2(low = "blue",mid = "white",high = "red",midpoint = 0.5)
+r_spdf <- as(d, "SpatialPixelsDataFrame")
+r_df <- as.data.frame(r_spdf)
+
+
+m_df <- r_df %>%
+  reshape2::melt(id = c("y","x")) %>%
+  dplyr::rename(lat = y, long = x) %>%
+  dplyr::select(-variable)# %>%
+
+
+### Recenter ####
+center <- 0 # positive values only
+
+# getworld map
+worldmap <- map_data ("world")
+
+#center and filter
+worldmap$long.recenter <- ifelse(worldmap$long < center - 180 , worldmap$long + 360, worldmap$long)
+map <- worldmap %>% filter (long > -78, long < -50, lat > 30, lat <60)
+  
+#base + geom_tile
+p <- ggplot(data = map, aes(x = long, y = lat)) +
+  geom_polygon(aes(group = group), fill="#f9f9f9", colour = "grey65")+
+  coord_fixed(xlim = xlims, ylim = ylims) +  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(), 
+        panel.border = element_rect(colour = "black")) +
+  geom_tile(data = m_df, aes(y = lat, x = long, fill = value)) +
+  scale_fill_gradient2(low = "blue",mid = "white",high = "red",midpoint = 0.5)# +
+
+#plotly
+plt <- ggplotly(p) %>%
+    layout(
+      title = "Black Sea Bass Thermal Habitat",
+      titlefont = list(size = 15),
+      margin = list(b = 50, t = 50),
+      autosize = F,
+      width = 500,
+      legend = list(x = 0.1, y = 0.9,
+      bgcolor = "#E2E2E2",
+      bordercolor = "#FFFFFF",
+      borderwidth = 2)
+    )
+shiny::div(plt, align = "center")
+
+```
+
+
+

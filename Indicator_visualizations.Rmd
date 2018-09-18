@@ -435,6 +435,9 @@ p <- plot_ly(mab, x = ~DOY, y = ~`sst mean long term MAB`, name = 'Long-term mea
 shiny::div(p %>% layout(autosize = F, width = 650), align = "center")
 ```
 
+<br>
+<br>
+<br>
 
 ```{r bsb thermal habitat}
 
@@ -454,6 +457,8 @@ z <- ncvar_get(data, "zi")
 proj <- data.frame(lon = lon,
                    lat = lat,
                    z = z)
+
+rm(data)
 z.max <- 1.353462
 proj <- proj %>% filter(z != "NA",z>0) %>% 
   mutate(z = plyr::mapvalues(z, from = (z[(z>z.max)]), to = rep(z.max,length(z[(z>z.max)]))))
@@ -466,34 +471,49 @@ proj <- spTransform(proj,crs)
 proj <- proj[strata,]
 gridded(proj) <- TRUE
 r <- raster(proj)
-projection(r) <- crs
-#downsample
-r <-disaggregate(r, fact=4)
-
+#projection(r) <- crs#downsample
+d <- aggregate(r, fact=5)
 # 
 # ggplot(data=r_df,aes(Var2, rev(Var1), fill = value)) +
 #   geom_tile() +
 #   scale_fill_gradient2(low = "blue",mid = "white",high = "red",midpoint = 0.5)
-r_spdf <- as(r, "SpatialPixelsDataFrame")
+r_spdf <- as(d, "SpatialPixelsDataFrame")
 r_df <- as.data.frame(r_spdf)
-# 
-# colors <- colorRamps::matlab.like(120)
-names(r_df)[1] <- "Thermal Habitat"
 
 
-bsb <- ggplot() +  
-  geom_polygon(data=boundary, aes(x=long, y=lat), fill="#9AC5E3") +
-  geom_sf(data = ne_countries, fill = "white",color = "white", size = 0.25) +
-  geom_sf(data = ne_states, fill = "white",color = "white", size = 0.05) +
-  geom_point(data=r_df, aes(x=x, y=y, color=`Thermal Habitat`), alpha=0.8) +
-  scale_color_gradient2(low = "blue",mid = "white",high = "red",midpoint = 0.5) +
-  coord_sf(crs = crs, xlim = xlims, ylim = ylims) +
-  theme_map() +
-  theme(legend.text = element_blank(),
-  plot.background=element_blank(),
-  panel.border=element_blank())
+m_df <- r_df %>%
+  reshape2::melt(id = c("y","x")) %>%
+  dplyr::rename(lat = y, long = x) %>%
+  dplyr::select(-variable)# %>%
 
-plt <- ggplotly(bsb) %>%
+
+### Recenter ####
+center <- 0 # positive values only
+
+# getworld map
+worldmap <- map_data ("world")
+
+#center and filter
+worldmap$long.recenter <- ifelse(worldmap$long < center - 180 , worldmap$long + 360, worldmap$long)
+map <- worldmap %>% filter (long > -78, long < -50, lat > 30, lat <60)
+  
+#base + geom_tile
+p <- ggplot(data = map, aes(x = long, y = lat)) +
+  geom_polygon(aes(group = group), fill="#f9f9f9", colour = "grey65")+
+  coord_fixed(xlim = xlims, ylim = ylims) +  theme_bw() + 
+  theme(legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(), 
+        panel.border = element_rect(colour = "black")) +
+  geom_tile(data = m_df, aes(y = lat, x = long, fill = value)) +
+  scale_fill_gradient2(low = "blue",mid = "white",high = "red",midpoint = 0.5)# +
+
+#plotly
+plt <- ggplotly(p) %>%
     layout(
       title = "Black Sea Bass Thermal Habitat",
       titlefont = list(size = 15),
@@ -506,6 +526,7 @@ plt <- ggplotly(bsb) %>%
       borderwidth = 2)
     )
 shiny::div(plt, align = "center")
+
 
 ```
 
